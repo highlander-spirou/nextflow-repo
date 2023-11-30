@@ -1,18 +1,7 @@
-/*
-Directory Declarative
-*/
-params.s3root = "s3://nextflow-first-bucket"
-params.reads = "$params.s3root/input_files/data/ggal/gut_{1,2}.fq"
-params.transcriptome_file = "$params.s3root/input_files/data/ggal/transcriptome.fa"
-// params.multiqc = "$projectDir/multiqc"
-
-/*
-Container Declarative
-*/
-params.outdir = "$params.s3root/output"
-params.container_salmon = "quay.io/biocontainers/salmon:1.10.2--hecfa306_0"
-params.container_multiqc = "quay.io/biocontainers/multiqc:1.18--pyhdfd78af_0"
-
+params.reads = "$projectDir/data/ggal/gut_{1,2}.fq"
+params.transcriptome_file = "$projectDir/data/ggal/transcriptome.fa"
+params.multiqc = "$projectDir/multiqc"
+params.outdir = "results"
 
 log.info """\
     R N A S E Q - N F   P I P E L I N E
@@ -24,7 +13,6 @@ log.info """\
     .stripIndent()
 
 process INDEX {
-    container params.container_salmon
     input:
     path transcriptome
 
@@ -38,7 +26,8 @@ process INDEX {
 }
 
 process QUANTIFICATION {
-    container params.container_salmon
+    tag "Salmon on $sample_id"
+    publishDir params.outdir, mode:'copy'
 
     input:
     path salmon_index
@@ -54,6 +43,8 @@ process QUANTIFICATION {
 }
 
 process FASTQC {
+    tag "FASTQC on $sample_id"
+
     input:
     tuple val(sample_id), path(reads)
 
@@ -68,8 +59,7 @@ process FASTQC {
 }
 
 process MULTIQC {
-    publishDir params.outdir, mode:"copy", overwrite: true
-    container params.container_multiqc
+    publishDir params.outdir, mode:'copy'
 
     input:
     path '*' // MultiQC will recursively search all paths, so using, wildcard, we specify None or mode targeted MultiQC (if needed)
@@ -84,14 +74,16 @@ process MULTIQC {
 }
 
 workflow {
-    read_pairs_ch = Channel
+    Channel
         .fromFilePairs(params.reads, checkIfExists: true)
+        .set { read_pairs_ch }
 
     index_ch = INDEX(params.transcriptome_file)
-    index_ch.view()
     quant_ch = QUANTIFICATION(index_ch, read_pairs_ch)
     quant_ch.view()
-    MULTIQC(quant_ch)
+    fastqc_ch = FASTQC(read_pairs_ch)
+    fastqc_ch.view()
+    MULTIQC(quant_ch.mix(fastqc_ch).collect())
 }
 
 workflow.onComplete {
