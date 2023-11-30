@@ -3,3 +3,4 @@ work
 archive
 results
 nextflow.config
+*.pem
